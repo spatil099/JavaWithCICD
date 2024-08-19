@@ -1,0 +1,124 @@
+pipeline {
+    agent any
+
+    
+    options {
+    skipDefaultCheckout true
+     disableConcurrentBuilds()
+     timeout(time: 30, unit: 'MINUTES')
+     copyArtifactPermission('SecondPipeline') 
+} 
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "Running build for branch: ${env.BRANCH_NAME}"
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Publish Test Results') {
+            steps {
+                junit 'target/surefire-reports/*.xml'
+            }
+        }
+
+        stage('Code Coverage') {
+            steps {
+                jacoco execPattern: '**/target/jacoco.exec', classPattern: '**/target/classes', sourcePattern: '**/src/main/java'
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'target/*.jar', allowEmptyArchive: false
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build succeeded!'
+            echo 'Triggering Secondpipeline!'
+            // Optionally trigger the downstream pipeline here if you want it on success as well
+            script {
+                     // Define the parameters to pass to the downstream pipeline
+                    def branchName
+                    def encoded
+                    def sourceJobPath
+ 
+                        // Handle non-pull request builds
+                        branchName = env.BRANCH_NAME
+                        if(!branchName){
+                        sourceJobPath = 'PullRequests'
+                        }else{
+                        encoded = branchName.replace('/', '%2F')
+                        sourceJobPath = "Knime/${encoded}"
+                   		}
+                    
+                    echo "Copying artifacts from job: ${sourceJobPath}"
+                    def downstreamParams = [
+                        string(name: 'JOB_NAME', value: sourceJobPath),
+                        string(name: 'BUILD_SELECTOR', value: 'lastSuccessful'),  // Or 'specific'
+                        string(name: 'SPECIFIC_BUILD_NUMBER', value: '1')  // Just to be safe
+                    ]
+
+                    // Trigger the downstream pipeline
+                    build job: 'SecondPipeline',
+                          parameters: downstreamParams,
+                          wait: false  
+                }
+        }
+        unstable {
+            echo 'Build is unstable!'
+            echo 'Triggering Secondpipeline!'
+            // Trigger the downstream pipeline
+            script {
+                    // Define the parameters to pass to the downstream pipeline
+                    def branchName
+                    def encoded
+                    def sourceJobPath
+ 
+                        // Handle non-pull request builds
+                        branchName = env.BRANCH_NAME
+                        if(!branchName){
+                        sourceJobPath = 'PullRequests'
+                        }else{
+                        encoded = branchName.replace('/', '%2F')
+                        sourceJobPath = "Knime/${encoded}"
+                   		}
+                    
+                    echo "Copying artifacts from job: ${sourceJobPath}"
+                    def downstreamParams = [
+                        string(name: 'JOB_NAME', value: sourceJobPath),
+                        string(name: 'BUILD_SELECTOR', value: 'lastSuccessful'),  // Or 'specific'
+                        string(name: 'SPECIFIC_BUILD_NUMBER', value: '1')  // Just to be safe
+                    ]
+
+                    // Trigger the downstream pipeline
+                    build job: 'SecondPipeline',
+                          parameters: downstreamParams,
+                          wait: false  
+                }
+        }
+        failure {
+            echo 'Build failed!'
+            
+        }
+        always {
+            echo 'Build completed!'
+        }
+    }
+}

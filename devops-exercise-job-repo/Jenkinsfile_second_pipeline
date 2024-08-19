@@ -1,0 +1,45 @@
+pipeline {
+    agent any
+
+	parameters {
+        string(name: 'JOB_NAME', defaultValue: '', description: 'The name of the job from which to select the build.')
+        choice(name: 'BUILD_SELECTOR', choices: ['lastSuccessful', 'specific'], description: 'Select the build to use.')
+        string(name: 'SPECIFIC_BUILD_NUMBER', defaultValue: '', description: 'If using "specific" selector, specify the build number.')
+    }
+    
+
+    stages {
+        stage('Retrieve Artifacts') {
+            steps {
+                script {
+                	def selector = null
+                    if (params.BUILD_SELECTOR == 'lastSuccessful') {
+                        selector = lastSuccessful()
+                    } else if (params.BUILD_SELECTOR == 'specific' && params.SPECIFIC_BUILD_NUMBER) {
+                        selector = specific(params.SPECIFIC_BUILD_NUMBER)
+                    } else {
+                        error("Invalid BUILD_SELECTOR or missing SPECIFIC_BUILD_NUMBER for 'specific' selector.")
+                    }
+                    
+                    // Retrieve artifacts from the first job
+                    copyArtifacts(projectName: params.JOB_NAME, selector: selector, filter: '**/target/*.jar', target: 'artifacts/')
+                }
+            }
+        }
+
+        stage('Run Application') {
+            steps {
+                script {
+                    // Run the application
+                    sh 'java -jar artifacts/target/*.jar'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
